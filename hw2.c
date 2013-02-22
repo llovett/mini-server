@@ -95,6 +95,10 @@ int main(int argc, char** argv) {
 	// Grab the file to serve
 	char file_path[1024];
 	sprintf(file_path, "%s%s", docroot, request_path);
+	// Special handling for directories
+	if ( is_dir(file_path) ) {
+	    sprintf(file_path, "%s/index.html", docroot);
+	}
 	int fd;
 	if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
 	    perror("open");
