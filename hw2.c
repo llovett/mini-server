@@ -99,12 +99,33 @@ int main(int argc, char** argv) {
 	if ( is_dir(file_path) ) {
 	    sprintf(file_path, "%s/index.html", docroot);
 	}
+	// Find the content-type of the document
+	char *filename = strrchr( file_path, '.' );
+	char *content_type;
+	if ( !strcasecmp(filename, ".png") ){
+	    content_type = "image/png";
+	} else if ( !strcasecmp(filename, ".gif") ) {
+	    content_type = "image/gif";
+	} else if ( !(strcasecmp(filename, ".jpg")&strcasecmp(filename, ".jpeg")) ) {
+	    content_type = "image/jpeg";
+	} else if ( !strcasecmp(filename, ".pdf") ) {
+	    content_type = "application/pdf";
+	} else {
+	    content_type = "text/html";
+	}
 	int fd;
 	if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
 	    perror("open");
 	    exit(1);
 	}
 
+	// Send a response
+	int response_code = 200;
+	char *response_message = "OK";
+	char response_header[1024];
+	sprintf(response_header, "%s %d %s\r\nContent-type: %s\r\n\r\n",
+		http_version, response_code, response_message, content_type);
+	write(sock, response_header, strlen(response_header)*sizeof(char));
 	// Read in the file
 	char file_buff[BUFFER_SIZE];
 	int bytes_read;
@@ -119,5 +140,3 @@ int main(int argc, char** argv) {
 
     shutdown(server_sock,SHUT_RDWR);
 }
-
-
