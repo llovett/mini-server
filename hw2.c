@@ -10,10 +10,12 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 #define BUFFER_SIZE 2048
 #define PAGE_NOT_FOUND "<!doctype html><html><head><title>404 Not Found</title></head><body><h1>You Must Be New Here</h1><p>Whatever you were looking for isn\'t here. You need a <a href=\"http://internet-map.net/#10-115.88082184213471-69.08807438100536\">map</a>.</p></body></html>"
 
+static char Docroot[128];
 extern int errno;
 
 int is_dir( char *path ) {
@@ -27,6 +29,89 @@ int is_dir( char *path ) {
     return S_ISDIR(s.st_mode);
 }
 
+void *handle_request( void *arg ) {
+    int sock = (int)arg;
+    
+    // Receive the incoming request
+    char buf[BUFFER_SIZE];
+    memset(&buf,0,sizeof(buf));
+    int space_left = BUFFER_SIZE;
+    while ( space_left > 0 && (NULL == strstr(buf, "\r\n\r\n")) ) {
+	int recv_count = recv(sock, (buf+(BUFFER_SIZE-space_left)), space_left, 0);
+	if(recv_count<0) {
+	    perror("Receive failed");
+	    exit(1);
+	}
+	space_left -= recv_count;
+    }
+    // Parse the request
+    char http_method[16];
+    char request_path[1024];
+    char http_version[64];
+    sscanf(buf, "%s %s %s\n", http_method, request_path, http_version);
+    puts("request received ----------");
+    printf("method: %s\npath: %s\nhttp version: %s\n", http_method, request_path, http_version);
+
+    // Grab the file to serve
+    int response_code = 200;
+    char response_message[64];
+    strcpy(response_message, "OK");
+    char file_path[1024];
+    sprintf(file_path, "%s%s", Docroot, request_path);
+    // Special handling for directories
+    if ( is_dir(file_path) ) {
+	sprintf(file_path, "%s/index.html", Docroot);
+    }
+    // Open the document to be served
+    int fd;
+    if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
+	// File not found
+	if ( ENOENT == errno ) {
+	    response_code = 404;
+	    strcpy(response_message, "Not Found");
+	} else {
+	    perror("open");
+	    exit(1);
+	}
+    }
+    char content_type[64];
+    strcpy(content_type, "text/html");
+    if ( 200 == response_code ) {
+	// Find the content-type of the document
+	char *filename = strrchr( file_path, '.' );
+	if ( !strcasecmp(filename, ".png") ){
+	    strcpy(content_type, "image/png");
+	} else if ( !strcasecmp(filename, ".gif") ) {
+	    strcpy(content_type, "image/gif");
+	} else if ( !(strcasecmp(filename, ".jpg")&strcasecmp(filename, ".jpeg")) ) {
+	    strcpy(content_type, "image/jpeg");
+	} else if ( !strcasecmp(filename, ".pdf") ) {
+	    strcpy(content_type, "application/pdf");
+	}
+    }
+    // Send a response
+    char response_header[1024];
+    sprintf(response_header, "%s %d %s\r\nContent-type: %s\r\n\r\n",
+	    http_version, response_code, response_message, content_type);
+    write(sock, response_header, strlen(response_header)*sizeof(char));
+    if ( 200 == response_code ) {
+	// Read in the file
+	char file_buff[BUFFER_SIZE];
+	int bytes_read;
+	while ( (bytes_read = read(fd, file_buff, BUFFER_SIZE)) ) {
+	    write(sock, file_buff, bytes_read);
+	}
+	close(fd);
+    } else if ( 404 == response_code ) {
+	write(sock, PAGE_NOT_FOUND, strlen(PAGE_NOT_FOUND)*sizeof(char));
+    }
+
+    shutdown(sock,SHUT_RDWR);
+    close(sock);
+
+    return NULL;
+}
+
 int main(int argc, char** argv) {
     // Parse command-line arguments
     if ( argc < 3 ) {
@@ -34,10 +119,11 @@ int main(int argc, char** argv) {
 	exit(1);
     }
     int port_num = atoi(argv[1]);
-    char *docroot = argv[2];
+    strncpy(Docroot, argv[2], 128);
+
     // Make sure that docroot specifies a directory
-    if (! is_dir(docroot) ) {
-	fprintf(stderr, "%s does not specify a directory.\n", docroot);
+    if (! is_dir(Docroot) ) {
+	fprintf(stderr, "%s does not specify a directory.\n", Docroot);
 	exit(1);
     }
 
@@ -79,83 +165,7 @@ int main(int argc, char** argv) {
 	    perror("Error accepting connection");
 	    exit(1);
 	}
-
-	// Receive the incoming request
-	char buf[BUFFER_SIZE];
-	memset(&buf,0,sizeof(buf));
-	int space_left = BUFFER_SIZE;
-	while ( space_left > 0 && (NULL == strstr(buf, "\r\n\r\n")) ) {
-	    int recv_count = recv(sock, (buf+(BUFFER_SIZE-space_left)), space_left, 0);
-	    if(recv_count<0) {
-		perror("Receive failed");
-		exit(1);
-	    }
-	    space_left -= recv_count;
-	}
-	// Parse the request
-	char http_method[16];
-	char request_path[1024];
-	char http_version[64];
-	sscanf(buf, "%s %s %s\n", http_method, request_path, http_version);
-	puts("request received ----------");
-	printf("method: %s\npath: %s\nhttp version: %s\n", http_method, request_path, http_version);
-
-	// Grab the file to serve
-	int response_code = 200;
-	char response_message[64];
-	strcpy(response_message, "OK");
-	char file_path[1024];
-	sprintf(file_path, "%s%s", docroot, request_path);
-	// Special handling for directories
-	if ( is_dir(file_path) ) {
-	    sprintf(file_path, "%s/index.html", docroot);
-	}
-	// Open the document to be served
-	int fd;
-	if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
-	    // File not found
-	    if ( ENOENT == errno ) {
-		response_code = 404;
-		strcpy(response_message, "Not Found");
-	    } else {
-		perror("open");
-		exit(1);
-	    }
-	}
-	char content_type[64];
-	strcpy(content_type, "text/html");
-	if ( 200 == response_code ) {
-	    // Find the content-type of the document
-	    char *filename = strrchr( file_path, '.' );
-	    if ( !strcasecmp(filename, ".png") ){
-		strcpy(content_type, "image/png");
-	    } else if ( !strcasecmp(filename, ".gif") ) {
-		strcpy(content_type, "image/gif");
-	    } else if ( !(strcasecmp(filename, ".jpg")&strcasecmp(filename, ".jpeg")) ) {
-		strcpy(content_type, "image/jpeg");
-	    } else if ( !strcasecmp(filename, ".pdf") ) {
-		strcpy(content_type, "application/pdf");
-	    }
-	}
-	// Send a response
-	char response_header[1024];
-	sprintf(response_header, "%s %d %s\r\nContent-type: %s\r\n\r\n",
-		http_version, response_code, response_message, content_type);
-	write(sock, response_header, strlen(response_header)*sizeof(char));
-	if ( 200 == response_code ) {
-	    // Read in the file
-	    char file_buff[BUFFER_SIZE];
-	    int bytes_read;
-	    while ( (bytes_read = read(fd, file_buff, BUFFER_SIZE)) ) {
-		write(sock, file_buff, bytes_read);
-	    }
-	    close(fd);
-	} else if ( 404 == response_code ) {
-	    write(sock, PAGE_NOT_FOUND, strlen(PAGE_NOT_FOUND)*sizeof(char));
-	}
-
-	shutdown(sock,SHUT_RDWR);
-	close(sock);
+	handle_request( (void*)sock );
     }
 
     shutdown(server_sock,SHUT_RDWR);
