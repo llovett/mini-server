@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 
 #define BUFFER_SIZE 2048
 
@@ -85,14 +86,28 @@ int main(int argc, char** argv) {
 	}
 	// Parse the request
 	char http_method[16];
-	char file_path[1024];
+	char request_path[1024];
 	char http_version[64];
-	sscanf(buf, "%s %s %s\n", http_method, file_path, http_version);
+	sscanf(buf, "%s %s %s\n", http_method, request_path, http_version);
 	puts("request received ----------");
-	printf("method: %s\npath: %s\nhttp version: %s\n", http_method, file_path, http_version);
+	printf("method: %s\npath: %s\nhttp version: %s\n", http_method, request_path, http_version);
 
 	// Grab the file to serve
-	
+	char file_path[1024];
+	sprintf(file_path, "%s%s", docroot, request_path);
+	int fd;
+	if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
+	    perror("open");
+	    exit(1);
+	}
+
+	// Read in the file
+	char file_buff[BUFFER_SIZE];
+	int bytes_read;
+	while ( (bytes_read = read(fd, file_buff, BUFFER_SIZE)) ) {
+	    write(sock, file_buff, bytes_read);
+	}
+	close(fd);
 
 	shutdown(sock,SHUT_RDWR);
 	close(sock);
