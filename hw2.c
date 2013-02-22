@@ -10,10 +10,27 @@
 #include <errno.h>
 #include <sys/stat.h>
 
-#define SERVER_PORT 8080
 #define BUFFER_SIZE 2048
 
+int is_dir( char *path ) {
+    struct stat s;
+    stat( path, &s );
+    return S_ISDIR(s.st_mode);
+}
+
 int main(int argc, char** argv) {
+    // Parse command-line arguments
+    if ( argc < 3 ) {
+	fputs("USAGE: ./hw2 <port> <directory>\n", stderr);
+	exit(1);
+    }
+    int port_num = atoi(argv[1]);
+    char *docroot = argv[2];
+    // Make sure that docroot specifies a directory
+    if (! is_dir(docroot) ) {
+	fprintf(stderr, "%s does not specify a directory.\n", docroot);
+	exit(1);
+    }
 
     int server_sock = socket(AF_INET, SOCK_STREAM, 0);
     if(server_sock < 0) {
@@ -27,7 +44,7 @@ int main(int argc, char** argv) {
 
     struct sockaddr_in addr; 	// internet socket address data structure
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(SERVER_PORT); // byte order is significant
+    addr.sin_port = htons(port_num); // byte order is significant
     addr.sin_addr.s_addr = INADDR_ANY; // listen to all interfaces
 
     int res = bind(server_sock, (struct sockaddr*)&addr, sizeof(addr));
@@ -53,7 +70,6 @@ int main(int argc, char** argv) {
 	    perror("Error accepting connection");
 	    exit(1);
 	}
-	puts("Accepted a connection");
 
 	// Receive the incoming request
 	char buf[BUFFER_SIZE];
@@ -67,7 +83,16 @@ int main(int argc, char** argv) {
 	    }
 	    space_left -= recv_count;
 	}
-	puts(buf);
+	// Parse the request
+	char http_method[16];
+	char file_path[1024];
+	char http_version[64];
+	sscanf(buf, "%s %s %s\n", http_method, file_path, http_version);
+	puts("request received ----------");
+	printf("method: %s\npath: %s\nhttp version: %s\n", http_method, file_path, http_version);
+
+	// Grab the file to serve
+	
 
 	shutdown(sock,SHUT_RDWR);
 	close(sock);
