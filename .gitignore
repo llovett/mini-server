@@ -15,3 +15,9 @@
 *.exe
 *.out
 *.app
+
+# Emacs swap
+.swp_emacs
+# Executable
+hw2
+hw2.zip
