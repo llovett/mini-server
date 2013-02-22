@@ -12,10 +12,18 @@
 #include <fcntl.h>
 
 #define BUFFER_SIZE 2048
+#define PAGE_NOT_FOUND "<!doctype html><html><head><title>404 Not Found</title></head><body><h1>You Must Be New Here</h1><p>Whatever you were looking for isn\'t here. You need a <a href=\"http://internet-map.net/#10-115.88082184213471-69.08807438100536\">map</a>.</p></body></html>"
+
+extern int errno;
 
 int is_dir( char *path ) {
     struct stat s;
-    stat( path, &s );
+    if ( stat( path, &s ) < 0 ) {
+	if ( ENOENT == errno ) {
+	    return 0;
+	}
+	perror("stat");
+    }
     return S_ISDIR(s.st_mode);
 }
 
@@ -93,46 +101,58 @@ int main(int argc, char** argv) {
 	printf("method: %s\npath: %s\nhttp version: %s\n", http_method, request_path, http_version);
 
 	// Grab the file to serve
+	int response_code = 200;
+	char response_message[64];
+	strcpy(response_message, "OK");
 	char file_path[1024];
 	sprintf(file_path, "%s%s", docroot, request_path);
 	// Special handling for directories
 	if ( is_dir(file_path) ) {
 	    sprintf(file_path, "%s/index.html", docroot);
 	}
-	// Find the content-type of the document
-	char *filename = strrchr( file_path, '.' );
-	char *content_type;
-	if ( !strcasecmp(filename, ".png") ){
-	    content_type = "image/png";
-	} else if ( !strcasecmp(filename, ".gif") ) {
-	    content_type = "image/gif";
-	} else if ( !(strcasecmp(filename, ".jpg")&strcasecmp(filename, ".jpeg")) ) {
-	    content_type = "image/jpeg";
-	} else if ( !strcasecmp(filename, ".pdf") ) {
-	    content_type = "application/pdf";
-	} else {
-	    content_type = "text/html";
-	}
+	// Open the document to be served
 	int fd;
 	if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
-	    perror("open");
-	    exit(1);
+	    // File not found
+	    if ( ENOENT == errno ) {
+		response_code = 404;
+		strcpy(response_message, "Not Found");
+	    } else {
+		perror("open");
+		exit(1);
+	    }
 	}
-
+	char content_type[64];
+	strcpy(content_type, "text/html");
+	if ( 200 == response_code ) {
+	    // Find the content-type of the document
+	    char *filename = strrchr( file_path, '.' );
+	    if ( !strcasecmp(filename, ".png") ){
+		strcpy(content_type, "image/png");
+	    } else if ( !strcasecmp(filename, ".gif") ) {
+		strcpy(content_type, "image/gif");
+	    } else if ( !(strcasecmp(filename, ".jpg")&strcasecmp(filename, ".jpeg")) ) {
+		strcpy(content_type, "image/jpeg");
+	    } else if ( !strcasecmp(filename, ".pdf") ) {
+		strcpy(content_type, "application/pdf");
+	    }
+	}
 	// Send a response
-	int response_code = 200;
-	char *response_message = "OK";
 	char response_header[1024];
 	sprintf(response_header, "%s %d %s\r\nContent-type: %s\r\n\r\n",
 		http_version, response_code, response_message, content_type);
 	write(sock, response_header, strlen(response_header)*sizeof(char));
-	// Read in the file
-	char file_buff[BUFFER_SIZE];
-	int bytes_read;
-	while ( (bytes_read = read(fd, file_buff, BUFFER_SIZE)) ) {
-	    write(sock, file_buff, bytes_read);
+	if ( 200 == response_code ) {
+	    // Read in the file
+	    char file_buff[BUFFER_SIZE];
+	    int bytes_read;
+	    while ( (bytes_read = read(fd, file_buff, BUFFER_SIZE)) ) {
+		write(sock, file_buff, bytes_read);
+	    }
+	    close(fd);
+	} else if ( 404 == response_code ) {
+	    write(sock, PAGE_NOT_FOUND, strlen(PAGE_NOT_FOUND)*sizeof(char));
 	}
-	close(fd);
 
 	shutdown(sock,SHUT_RDWR);
 	close(sock);
