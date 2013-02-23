@@ -13,7 +13,7 @@
 #include <pthread.h>
 
 #define BUFFER_SIZE 2048
-#define PAGE_NOT_FOUND "<!doctype html><html><head><title>404 Not Found</title></head><body><h1>You Must Be New Here</h1><p>Whatever you were looking for isn\'t here. You need a <a href=\"http://internet-map.net/#10-115.88082184213471-69.08807438100536\">map</a>.</p></body></html>"
+#define PAGE_NOT_FOUND "<!doctype html><html><head><title>404 Not Found</title></head><body><h1>You Must Be New Here</h1><p>Whatever you were looking for isn\'t here. You should use a <a href=\"http://internet-map.net/#10-115.88082184213471-69.08807438100536\">map</a>.</p></body></html>"
 #define BAD_REQUEST "<!doctype html><html><head><title>400 Bad Request</title></head><body><h1>Such Language!</h1><p>Never have I heard such HTTP verbs! This server only supports GET requests.</p></body></html>"
 #define MAX_THREADS 1000
 
