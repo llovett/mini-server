@@ -21,6 +21,8 @@ static char Docroot[128];
 static pthread_t Threads[MAX_THREADS];
 extern int errno;
 
+/* assures that all of <msg> is written to <file>.
+ * also gets rid of warnings that I'm ignoring the return value of write() */
 void put( int file, char *msg ) {
     int written = 0;
     int msg_bytes = strlen(msg)*sizeof(char);
@@ -29,6 +31,7 @@ void put( int file, char *msg ) {
     }
 }
 
+/* checks of <path> is a directory */
 int is_dir( char *path ) {
     struct stat s;
     if ( stat( path, &s ) < 0 ) {
@@ -40,6 +43,7 @@ int is_dir( char *path ) {
     return S_ISDIR(s.st_mode);
 }
 
+/* thread function to handle a request. <arg> is a socket number */
 void *handle_request( void *arg ) {
     int sock = (int)(intptr_t)arg;
     
