@@ -14,9 +14,20 @@
 
 #define BUFFER_SIZE 2048
 #define PAGE_NOT_FOUND "<!doctype html><html><head><title>404 Not Found</title></head><body><h1>You Must Be New Here</h1><p>Whatever you were looking for isn\'t here. You need a <a href=\"http://internet-map.net/#10-115.88082184213471-69.08807438100536\">map</a>.</p></body></html>"
+#define BAD_REQUEST "<!doctype html><html><head><title>400 Bad Request</title></head><body><h1>Such Language!</h1><p>Never have I heard such HTTP verbs! This server only supports GET requests.</p></body></html>"
+#define MAX_THREADS 1000
 
 static char Docroot[128];
+static pthread_t Threads[MAX_THREADS];
 extern int errno;
+
+void put( int file, char *msg ) {
+    int written = 0;
+    int msg_bytes = strlen(msg)*sizeof(char);
+    while ( written < msg_bytes ) {
+	written += write(file, msg+(written/sizeof(char)), msg_bytes - written);
+    }
+}
 
 int is_dir( char *path ) {
     struct stat s;
@@ -30,7 +41,7 @@ int is_dir( char *path ) {
 }
 
 void *handle_request( void *arg ) {
-    int sock = (int)arg;
+    int sock = (int)(intptr_t)arg;
     
     // Receive the incoming request
     char buf[BUFFER_SIZE];
@@ -53,25 +64,33 @@ void *handle_request( void *arg ) {
     printf("method: %s\npath: %s\nhttp version: %s\n", http_method, request_path, http_version);
 
     // Grab the file to serve
+    char file_path[1024];
+    int fd;
     int response_code = 200;
     char response_message[64];
     strcpy(response_message, "OK");
-    char file_path[1024];
-    sprintf(file_path, "%s%s", Docroot, request_path);
-    // Special handling for directories
-    if ( is_dir(file_path) ) {
-	sprintf(file_path, "%s/index.html", Docroot);
+    // Check request method
+    if ( 0 != strcasecmp(http_method, "GET") ) {
+	response_code = 400;
+	strcpy(response_message, "Bad Request");
     }
-    // Open the document to be served
-    int fd;
-    if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
-	// File not found
-	if ( ENOENT == errno ) {
-	    response_code = 404;
-	    strcpy(response_message, "Not Found");
-	} else {
-	    perror("open");
-	    exit(1);
+    // Good requests only
+    else {
+	sprintf(file_path, "%s%s", Docroot, request_path);
+	// Special handling for directories
+	if ( is_dir(file_path) ) {
+	    sprintf(file_path, "%s/index.html", Docroot);
+	}
+	// Open the document to be served
+	if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
+	    // File not found
+	    if ( ENOENT == errno ) {
+		response_code = 404;
+		strcpy(response_message, "Not Found");
+	    } else {
+		perror("open");
+		exit(1);
+	    }
 	}
     }
     char content_type[64];
@@ -91,19 +110,28 @@ void *handle_request( void *arg ) {
     }
     // Send a response
     char response_header[1024];
-    sprintf(response_header, "%s %d %s\r\nContent-type: %s\r\n\r\n",
-	    http_version, response_code, response_message, content_type);
-    write(sock, response_header, strlen(response_header)*sizeof(char));
-    if ( 200 == response_code ) {
+    sprintf(response_header, "HTTP/1.0 %d %s\r\nContent-type: %s\r\n\r\n",
+	    response_code, response_message, content_type);
+    put(sock, response_header);
+    switch ( response_code ) {
+    case 200:
+    {
 	// Read in the file
 	char file_buff[BUFFER_SIZE];
 	int bytes_read;
 	while ( (bytes_read = read(fd, file_buff, BUFFER_SIZE)) ) {
-	    write(sock, file_buff, bytes_read);
+	    int written = write(sock, file_buff, bytes_read);
 	}
 	close(fd);
-    } else if ( 404 == response_code ) {
-	write(sock, PAGE_NOT_FOUND, strlen(PAGE_NOT_FOUND)*sizeof(char));
+    } break;
+    case 400:
+    {
+	put(sock, BAD_REQUEST);
+    } break;
+    case 404:
+    {
+	put(sock, PAGE_NOT_FOUND);
+    } break;
     }
 
     shutdown(sock,SHUT_RDWR);
@@ -150,6 +178,7 @@ int main(int argc, char** argv) {
 
     struct sockaddr_in remote_addr;
     unsigned int socklen = sizeof(remote_addr);
+    int cur_thread;
 
     while(1) {
 	// wait for a connection
@@ -161,11 +190,17 @@ int main(int argc, char** argv) {
 
 	int sock;
 	sock = accept(server_sock, (struct sockaddr*)&remote_addr, &socklen);
+	puts("accepted a connection");
 	if(sock < 0) {
 	    perror("Error accepting connection");
 	    exit(1);
 	}
-	handle_request( (void*)sock );
+	if ( pthread_create(&Threads[cur_thread], NULL, handle_request,
+			    (void*)(intptr_t)sock) ) {
+	    fputs("error creating thread", stderr);
+	    exit(1);
+	}
+	cur_thread = (cur_thread+1)%MAX_THREADS;
     }
 
     shutdown(server_sock,SHUT_RDWR);
