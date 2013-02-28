@@ -110,6 +110,8 @@ void *handle_request( void *arg ) {
 	    strcpy(content_type, "image/jpeg");
 	} else if ( !strcasecmp(filename, ".pdf") ) {
 	    strcpy(content_type, "application/pdf");
+	} else if ( !strcasecmp(filename, ".ico") ) {
+	    strcpy(content_type, "image/x-icon");
 	}
     }
     // Send a response
