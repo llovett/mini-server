@@ -83,7 +83,9 @@ void *handle_request( void *arg ) {
 	sprintf(file_path, "%s%s", Docroot, request_path);
 	// Special handling for directories
 	if ( is_dir(file_path) ) {
-	    sprintf(file_path, "%s/index.html", Docroot);
+	    char *file_path2 = strdup(file_path);
+	    sprintf(file_path, "%s/index.html", file_path2);
+	    free(file_path2);
 	}
 	// Open the document to be served
 	if ( (fd = open( file_path, O_RDONLY )) < 0 ) {
@@ -112,6 +114,8 @@ void *handle_request( void *arg ) {
 	    strcpy(content_type, "application/pdf");
 	} else if ( !strcasecmp(filename, ".ico") ) {
 	    strcpy(content_type, "image/x-icon");
+	} else if ( !strcasecmp(filename, ".txt") ) {
+	    strcpy(content_type, "text/plain");
 	}
     }
     // Send a response
@@ -126,6 +130,7 @@ void *handle_request( void *arg ) {
 	char file_buff[BUFFER_SIZE];
 	int bytes_read;
 	while ( (bytes_read = read(fd, file_buff, BUFFER_SIZE)) ) {
+	    // write(2) is equivalent to send(2) with no flags (source: send(2) man page)
 	    int written = write(sock, file_buff, bytes_read);
 	}
 	close(fd);
